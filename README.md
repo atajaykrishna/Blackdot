@@ -1,0 +1,2 @@
+# Blackdot
+futuresstrategy testings
