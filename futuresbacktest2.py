@@ -5,11 +5,11 @@ df = pd.read_csv("gold_futures_data.csv")
 df['datetime'] = pd.to_datetime(df['datetime'])
 df = df.sort_values('datetime').reset_index(drop=True)
 
-open_trades = []  # Stores currently open trades
-closed_trades = []  # Stores closed trades info
+open_trades = [] 
+closed_trades = []  
 
-volume = 1  # Start with 1 ounce
-volume_step = 50  # Increase by 10 ounces on loss
+volume = 1  
+volume_step = 50 
 
 for i in range(5, len(df) - 1):  # Stop at second last candle to have exit candle
     current_datetime = df.loc[i, 'datetime']
@@ -20,8 +20,7 @@ for i in range(5, len(df) - 1):  # Stop at second last candle to have exit candl
     next_datetime = df.loc[i + 1, 'datetime']
     exit_price = df.loc[i + 1, 'open']  # Exit at open of next candle (can be changed)
 
-    # --- Close all open trades before opening new ---
-    # We close all currently open trades at the next candle's open price
+
     for trade in open_trades:
         pnl_per_ounce = None
         if trade['trade'] == 'buy':
@@ -29,7 +28,7 @@ for i in range(5, len(df) - 1):  # Stop at second last candle to have exit candl
         else:  # sell
             pnl_per_ounce = trade['entry_price'] - exit_price
 
-        total_pnl = pnl_per_ounce * trade['volume']  # multiply by volume
+        total_pnl = pnl_per_ounce * trade['volume']  
 
         duration = next_datetime - trade['entry_datetime']
 
@@ -47,7 +46,7 @@ for i in range(5, len(df) - 1):  # Stop at second last candle to have exit candl
         }
         closed_trades.append(trade_record)
 
-        # Adjust volume for next trade based on result
+        
         if total_pnl < 0:
             volume = min(volume + volume_step, 100)  # Max 100 ounces
         else:
@@ -102,10 +101,10 @@ for i in range(5, len(df) - 1):  # Stop at second last candle to have exit candl
             break
 
     if not found:
-        # No trades opened if condition 2 not satisfied
+       
         continue
 
-# Close any remaining open trades at last candle open price
+
 if open_trades:
     last_datetime = df.loc[len(df) - 1, 'datetime']
     last_open = df.loc[len(df) - 1, 'open']
@@ -131,10 +130,10 @@ if open_trades:
             "duration": duration
         })
 
-# Print results
+
 print(f"Total trades closed: {len(closed_trades)}\n")
 
-for trade in closed_trades[:20]:  # print first 20 trades
+for trade in closed_trades[:20]:  
     print(f"Trade Type: {trade['trade_type'].upper()}, Condition: {trade['condition']}, Volume: {trade['volume']} oz")
     print(f"Entry: {trade['entry_datetime']} at {trade['entry_price']:.2f}")
     print(f"Exit:  {trade['exit_datetime']} at {trade['exit_price']:.2f}")
