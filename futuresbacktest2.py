@@ -1,145 +1,130 @@
 import pandas as pd
 
-# Load CSV
+# Load data
 df = pd.read_csv("gold_futures_data.csv")
 df['datetime'] = pd.to_datetime(df['datetime'])
 df = df.sort_values('datetime').reset_index(drop=True)
 
-open_trades = [] 
-closed_trades = []  
+open_trade = None
+closed_trades = []
 
-volume = 1  
-volume_step = 50 
+for i in range(7, len(df) - 1):  # Start after 5 candles
+    current_row = df.loc[i]
+    open_today = current_row['open']  # Current candle open
+    close_today = current_row['close']  # Current candle close
+    high_today = current_row['high']  # Current candle high
+    low_today = current_row['low']  # Current candle low
+    close1 = df.loc[i - 1, 'close']  # Close of the first previous candle
+    close2 = df.loc[i - 2, 'close']  # Close of the second previous candle
+    next_open = df.loc[i + 1, 'open']
+    next_time = df.loc[i + 1, 'datetime']
+    current_time = current_row['datetime']
 
-for i in range(5, len(df) - 1):  # Stop at second last candle to have exit candle
-    current_datetime = df.loc[i, 'datetime']
-    LTP = df.loc[i, 'open']
-    closes_prev_1 = df.loc[i - 1, 'close']
-    closes_prev_2 = df.loc[i - 2, 'close']
+    # --- Initialize trade_signal to None ---
+    trade_signal = None  # Ensure trade_signal is always defined
 
-    next_datetime = df.loc[i + 1, 'datetime']
-    exit_price = df.loc[i + 1, 'open']  # Exit at open of next candle (can be changed)
+    # --- Condition 1 --- (High and Low Price Comparison for Buy/Sell)
+    if high_today > close1 and low_today > close2:
+        # --- Condition 2 (Buy Condition) ---
+        buy_cond2 = False
+        sl_candles = []
 
-
-    for trade in open_trades:
-        pnl_per_ounce = None
-        if trade['trade'] == 'buy':
-            pnl_per_ounce = exit_price - trade['entry_price']
-        else:  # sell
-            pnl_per_ounce = trade['entry_price'] - exit_price
-
-        total_pnl = pnl_per_ounce * trade['volume']  
-
-        duration = next_datetime - trade['entry_datetime']
-
-        trade_record = {
-            "entry_datetime": trade['entry_datetime'],
-            "exit_datetime": next_datetime,
-            "trade_type": trade['trade'],
-            "condition": trade['condition'],
-            "entry_price": trade['entry_price'],
-            "exit_price": exit_price,
-            "pnl_per_ounce": pnl_per_ounce,
-            "volume": trade['volume'],
-            "total_pnl": total_pnl,
-            "duration": duration
-        }
-        closed_trades.append(trade_record)
-
-        
-        if total_pnl < 0:
-            volume = min(volume + volume_step, 100)  # Max 100 ounces
+        # Step 1: Check the first two candles' price strength condition
+        if close2 > close1 * 1.005:
+            if high_today > close2:  # Compare the high of today with close2
+                buy_cond2 = True
+                sl_candles = [close1, close2]
         else:
-            volume = 1  # Reset on win
+            # Step 2: Check the next 3 to 5 candles
+            for j in range(3, 6):  # Check for the next 3 to 5 candles
+                compare_close = df.loc[i - j, 'close']
+                if compare_close > close1 * 1.005:  # If the close is greater than 0.5% of close1
+                    if high_today > compare_close:  # If high_today is greater than this candle's close
+                        buy_cond2 = True
+                        sl_candles.append(compare_close)
 
-    open_trades = []  # Reset open trades
+        # If buy_cond2 is True, set SL to the minimum of the sl_candles
+        if buy_cond2:
+            sl = min(sl_candles)
+            trade_signal = 'buy'
 
-    # --- Check Condition 1 Buy ---
-    if LTP > closes_prev_1 and LTP > closes_prev_2:
-        sl = min(closes_prev_1, closes_prev_2)
-        open_trades.append({
-            "entry_datetime": current_datetime,
-            "entry_price": LTP,
-            "SL": sl,
-            "condition": "Condition 1",
-            "trade": "buy",
-            "volume": volume
-        })
-        continue
+    elif high_today < close1 and low_today < close2:
+        # --- Condition 2 (Sell Condition) ---
+        sell_cond2 = False
+        sl_candles = []
 
-    # --- Check Condition 1 Sell ---
-    if LTP < closes_prev_1 and LTP < closes_prev_2:
-        sl = max(closes_prev_1, closes_prev_2)
-        open_trades.append({
-            "entry_datetime": current_datetime,
-            "entry_price": LTP,
-            "SL": sl,
-            "condition": "Condition 1",
-            "trade": "sell",
-            "volume": volume
-        })
-        continue
+        # Check if close2 > close1 * 1.005
+        if close2 > close1 * 1.005:
+            # If close2 > close1 * 1.005, check if high_today < close2
+            if low_today < close2:
+                sell_cond2 = True
+                sl_candles = [close1, close2]  # SL is the highest of close1 and close2
+        else:
+            # If close2 is not greater than close1 * 1.005, check the next 3 to 5 candles
+            for j in range(3, 6):  # Check for the next 3 to 5 candles
+                compare_close = df.loc[i - j, 'close']
+                if compare_close > close1 * 1.005:  # If the close is greater than 0.5% of close1
+                    if low_today < compare_close:  # If low_today is lower than this candle's close
+                        sell_cond2 = True
+                        sl_candles.append(compare_close)
 
-    # --- Check Condition 2 Buy ---
-    found = False
-    for j in range(1, 6):
-        idx = i - j
-        close_j = df.loc[idx, 'close']
-        required_price = LTP * 1.005  # 0.5% higher
+        if sell_cond2:
+            sl = max(sl_candles)  # Set SL as the highest close price among the candles
+            trade_signal = 'sell'
 
-        if close_j >= required_price:
-            lowest_close_5 = df.loc[i - 5:i - 1, 'close'].min()
-            open_trades.append({
-                "entry_datetime": current_datetime,
-                "entry_price": LTP,
-                "SL": lowest_close_5,
-                "condition": f"Condition 2 (close candle -{j})",
-                "trade": "buy",
-                "volume": volume
+    # --- Trade Decision ---
+    if trade_signal:
+        # Close opposite trade
+        if open_trade and open_trade['trade'] != trade_signal:
+            trade = open_trade
+            exit_time = current_time  # Exit the current trade on the same day as the new entry
+            pnl = next_open - trade['entry_price'] if trade['trade'] == 'buy' else trade['entry_price'] - next_open
+            duration = exit_time - trade['entry_datetime']
+            closed_trades.append({
+                "entry_datetime": trade['entry_datetime'],
+                "exit_datetime": exit_time,
+                "trade_type": trade['trade'],
+                "condition": trade['condition'],
+                "entry_price": trade['entry_price'],
+                "exit_price": next_open,
+                "pnl": pnl,
+                "duration": duration
             })
-            found = True
-            break
+            open_trade = None
 
-    if not found:
-       
-        continue
+        # Open new trade
+        if not open_trade:
+            open_trade = {
+                "entry_datetime": current_time,
+                "entry_price": open_today,
+                "SL": sl,
+                "condition": "Both conditions met",
+                "trade": trade_signal
+            }
 
-
-if open_trades:
-    last_datetime = df.loc[len(df) - 1, 'datetime']
-    last_open = df.loc[len(df) - 1, 'open']
-    for trade in open_trades:
-        if trade['trade'] == 'buy':
-            pnl_per_ounce = last_open - trade['entry_price']
-        else:
-            pnl_per_ounce = trade['entry_price'] - last_open
-
-        total_pnl = pnl_per_ounce * trade['volume']
-        duration = last_datetime - trade['entry_datetime']
-
-        closed_trades.append({
-            "entry_datetime": trade['entry_datetime'],
-            "exit_datetime": last_datetime,
-            "trade_type": trade['trade'],
-            "condition": trade['condition'],
-            "entry_price": trade['entry_price'],
-            "exit_price": last_open,
-            "pnl_per_ounce": pnl_per_ounce,
-            "volume": trade['volume'],
-            "total_pnl": total_pnl,
-            "duration": duration
-        })
+# Final Trade Closure
+if open_trade:
+    final_open = df.loc[len(df) - 1, 'open']
+    final_time = df.loc[len(df) - 1, 'datetime']
+    trade = open_trade
+    pnl = final_open - trade['entry_price'] if trade['trade'] == 'buy' else trade['entry_price'] - final_open
+    duration = final_time - trade['entry_datetime']
+    closed_trades.append({
+        "entry_datetime": trade['entry_datetime'],
+        "exit_datetime": final_time,
+        "trade_type": trade['trade'],
+        "condition": trade['condition'],
+        "entry_price": trade['entry_price'],
+        "exit_price": final_open,
+        "pnl": pnl,
+        "duration": duration
+    })
 
 
-print(f"Total trades closed: {len(closed_trades)}\n")
-
-for trade in closed_trades[:20]:  
-    print(f"Trade Type: {trade['trade_type'].upper()}, Condition: {trade['condition']}, Volume: {trade['volume']} oz")
-    print(f"Entry: {trade['entry_datetime']} at {trade['entry_price']:.2f}")
-    print(f"Exit:  {trade['exit_datetime']} at {trade['exit_price']:.2f}")
-    print(f"P&L per oz: {trade['pnl_per_ounce']:.2f}, Total P&L: {trade['total_pnl']:.2f}, Duration: {trade['duration']}\n")
-
-# Save trades to CSV
+# Save results to CSV
 trades_df = pd.DataFrame(closed_trades)
-trades_df.to_csv('closed_trades_with_volume.csv', index=False)
-print("Closed trades saved to 'closed_trades_with_volume.csv'.")
+trades_df.to_csv('closed_trades.csv', index=False)
+
+# Print trade summary
+print(f"Total trades closed: {len(closed_trades)}")
+print(trades_df.head(10))
