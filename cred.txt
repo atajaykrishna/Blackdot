@@ -1,2 +1,2 @@
-login=2001
-password=3321
+login=1001
+password=Bcm@321
